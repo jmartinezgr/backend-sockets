@@ -44,17 +44,26 @@ export class WebsocketGateway
     private readonly sensorDataService: SensorDataService,
   ) {}
 
-  async handleConnection(client: AuthenticatedSocket) {
+  async handleConnection(client: AuthenticatedSocket): Promise<void> {
     this.logger.log(`Nuevo cliente intentando conectar: ${client.id}`);
 
     try {
-      const token =
-        client.handshake.auth?.token ||
-        client.handshake.headers?.authorization?.split(' ')[1] ||
-        client.handshake.query?.token;
-      const role = client.handshake.auth?.role || client.handshake.query?.role;
+      const authToken = client.handshake.auth?.token as string | undefined;
+      const headerToken =
+        client.handshake.headers?.authorization?.split(' ')[1];
+      const queryToken = client.handshake.query?.token as string | undefined;
+      const token = authToken || headerToken || queryToken;
 
-      if (!token || !role) {
+      const authRole = client.handshake.auth?.role as string | undefined;
+      const queryRole = client.handshake.query?.role as string | undefined;
+      const role = authRole || queryRole;
+
+      if (
+        !token ||
+        typeof token !== 'string' ||
+        !role ||
+        typeof role !== 'string'
+      ) {
         this.logger.warn(`Cliente sin token o rol: ${client.id}`);
         client.emit('error', { message: 'Token y rol requeridos' });
         client.disconnect();
@@ -74,20 +83,27 @@ export class WebsocketGateway
         return;
       }
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Error desconocido';
       this.logger.error(
-        `Error en autenticación del cliente ${client.id}: ${error.message}`,
+        `Error en autenticación del cliente ${client.id}: ${errorMessage}`,
       );
       client.emit('error', { message: 'Error de autenticación' });
       client.disconnect();
     }
   }
 
-  private async authenticateSensor(client: AuthenticatedSocket, token: string) {
+  private async authenticateSensor(
+    client: AuthenticatedSocket,
+    token: string,
+  ): Promise<void> {
     try {
       const secret =
         this.configService.get<string>('JWT_SENSOR_SECRET') ||
         'default-sensor-secret-change-me';
-      const payload = this.jwtService.verify(token, { secret });
+      const payload = this.jwtService.verify<{ sub: number }>(token, {
+        secret,
+      });
 
       const sensor = await this.sensoresService.findById(payload.sub);
       if (!sensor || !sensor.active) {
@@ -117,17 +133,24 @@ export class WebsocketGateway
         sensorId: sensor.id,
       });
     } catch (error) {
-      this.logger.error(`❌ Error autenticando sensor: ${error.message}`);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Error desconocido';
+      this.logger.error(`❌ Error autenticando sensor: ${errorMessage}`);
       throw error;
     }
   }
 
-  private async authenticateUser(client: AuthenticatedSocket, token: string) {
+  private async authenticateUser(
+    client: AuthenticatedSocket,
+    token: string,
+  ): Promise<void> {
     try {
       const secret =
         this.configService.get<string>('JWT_SECRET') ||
         'default-secret-change-me';
-      const payload = this.jwtService.verify(token, { secret });
+      const payload = this.jwtService.verify<{ sub: number }>(token, {
+        secret,
+      });
 
       const usuario = await this.usuariosService.findById(payload.sub);
       if (!usuario) {
@@ -149,12 +172,14 @@ export class WebsocketGateway
         userId: usuario.id,
       });
     } catch (error) {
-      this.logger.error(`❌ Error autenticando usuario: ${error.message}`);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Error desconocido';
+      this.logger.error(`❌ Error autenticando usuario: ${errorMessage}`);
       throw error;
     }
   }
 
-  async handleDisconnect(client: AuthenticatedSocket) {
+  handleDisconnect(client: AuthenticatedSocket): void {
     if (client.role === 'sensor' && client.sensorId) {
       this.logger.log(
         `Sensor desconectado: ${client.username} (${client.sensorId})`,
@@ -179,7 +204,7 @@ export class WebsocketGateway
   async handleSensorData(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: Record<string, any>,
-  ) {
+  ): Promise<{ error?: string; success?: boolean; timestamp?: Date }> {
     if (client.role !== 'sensor' || !client.sensorId) {
       return { error: 'No autorizado' };
     }
@@ -209,8 +234,10 @@ export class WebsocketGateway
 
       return { success: true, timestamp: savedData.timestamp };
     } catch (error) {
-      this.logger.error(`Error procesando datos del sensor: ${error.message}`);
-      return { error: error.message };
+      const errorMessage =
+        error instanceof Error ? error.message : 'Error desconocido';
+      this.logger.error(`Error procesando datos del sensor: ${errorMessage}`);
+      return { error: errorMessage };
     }
   }
 }
