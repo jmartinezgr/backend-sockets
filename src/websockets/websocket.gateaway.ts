@@ -46,15 +46,13 @@ export class WebsocketGateway
 
   async handleConnection(client: AuthenticatedSocket) {
     this.logger.log(`Nuevo cliente intentando conectar: ${client.id}`);
-    
+
     try {
       const token =
         client.handshake.auth?.token ||
         client.handshake.headers?.authorization?.split(' ')[1] ||
         client.handshake.query?.token;
-      const role = 
-        client.handshake.auth?.role || 
-        client.handshake.query?.role;
+      const role = client.handshake.auth?.role || client.handshake.query?.role;
 
       if (!token || !role) {
         this.logger.warn(`Cliente sin token o rol: ${client.id}`);
@@ -76,7 +74,9 @@ export class WebsocketGateway
         return;
       }
     } catch (error) {
-      this.logger.error(`Error en autenticación del cliente ${client.id}: ${error.message}`);
+      this.logger.error(
+        `Error en autenticación del cliente ${client.id}: ${error.message}`,
+      );
       client.emit('error', { message: 'Error de autenticación' });
       client.disconnect();
     }
@@ -100,7 +100,9 @@ export class WebsocketGateway
 
       await client.join('sensors');
 
-      this.logger.log(`✅ Sensor conectado: ${sensor.nombre} (ID: ${sensor.id}, Socket: ${client.id})`);
+      this.logger.log(
+        `✅ Sensor conectado: ${sensor.nombre} (ID: ${sensor.id}, Socket: ${client.id})`,
+      );
 
       // Notificar a dashboards sobre nueva conexión de sensor
       this.server.to('dashboards').emit('sensor-connected', {
@@ -138,7 +140,9 @@ export class WebsocketGateway
 
       await client.join('dashboards');
 
-      this.logger.log(`✅ Dashboard conectado: ${usuario.username} (ID: ${usuario.id}, Socket: ${client.id})`);
+      this.logger.log(
+        `✅ Dashboard conectado: ${usuario.username} (ID: ${usuario.id}, Socket: ${client.id})`,
+      );
 
       client.emit('connected', {
         message: 'Dashboard autenticado correctamente',
