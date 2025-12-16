@@ -38,6 +38,10 @@ export class WebsocketGateway
   server: Server;
 
   private readonly logger = new Logger(WebsocketGateway.name);
+  private connectedSensors: Map<
+    number,
+    { socketId: string; nombre: string; tipo: string }
+  > = new Map();
 
   constructor(
     private readonly jwtService: JwtService,
@@ -119,6 +123,13 @@ export class WebsocketGateway
 
       await client.join('sensors');
 
+      // Registrar sensor conectado
+      this.connectedSensors.set(sensor.id, {
+        socketId: client.id,
+        nombre: sensor.nombre,
+        tipo: sensor.tipo,
+      });
+
       this.logger.log(
         `✅ Sensor conectado: ${sensor.nombre} (ID: ${sensor.id}, Socket: ${client.id})`,
       );
@@ -170,10 +181,31 @@ export class WebsocketGateway
         `✅ Dashboard conectado: ${usuario.username} (ID: ${usuario.id}, Socket: ${client.id})`,
       );
 
+      // Enviar lista de sensores ya conectados al dashboard
+      const activeSensors = Array.from(this.connectedSensors.entries()).map(
+        ([sensorId, info]) => ({
+          sensorId,
+          nombre: info.nombre,
+          tipo: info.tipo,
+          connected: true,
+        }),
+      );
+
       client.emit('connected', {
         message: 'Dashboard autenticado correctamente',
         userId: usuario.id,
       });
+
+      // Informar sobre sensores actualmente conectados
+      if (activeSensors.length > 0) {
+        client.emit('sensors-status', {
+          sensors: activeSensors,
+          timestamp: new Date(),
+        });
+        this.logger.log(
+          `📡 Enviados ${activeSensors.length} sensores activos al dashboard`,
+        );
+      }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Error desconocido';
@@ -187,6 +219,9 @@ export class WebsocketGateway
       this.logger.log(
         `Sensor desconectado: ${client.username} (${client.sensorId})`,
       );
+
+      // Remover de la lista de sensores conectados
+      this.connectedSensors.delete(client.sensorId);
 
       // Notificar a dashboards sobre desconexión
       this.server.to('dashboards').emit('sensor-disconnected', {
