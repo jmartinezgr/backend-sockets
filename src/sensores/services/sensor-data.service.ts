@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { SensorData, SensorDataDocument } from '../schemas/sensor-data.schema';
 import { Sensor, TipoDato } from '../entities/sensor.entity';
+import * as ExcelJS from 'exceljs';
 
 @Injectable()
 export class SensorDataService {
@@ -102,5 +103,93 @@ export class SensorDataService {
 
   async countBySensorId(sensorId: number): Promise<number> {
     return await this.sensorDataModel.countDocuments({ sensorId }).exec();
+  }
+
+  async exportToExcel(sensors: Sensor[]): Promise<ExcelJS.Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Sistema IoT';
+    workbook.created = new Date();
+
+    // Crear una hoja por cada sensor
+    for (const sensor of sensors) {
+      // Obtener todos los datos del sensor
+      const sensorData = await this.sensorDataModel
+        .find({ sensorId: sensor.id })
+        .sort({ timestamp: -1 })
+        .exec();
+
+      if (sensorData.length === 0) continue; // Saltar sensores sin datos
+
+      // Crear hoja con nombre del sensor (Excel limita a 31 caracteres)
+      const sheetName = sensor.nombre.substring(0, 31);
+      const worksheet = workbook.addWorksheet(sheetName);
+
+      // Encabezado con información del sensor
+      worksheet.mergeCells('A1:E1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = `Sensor: ${sensor.nombre}`;
+      titleCell.font = { bold: true, size: 14 };
+      titleCell.alignment = { horizontal: 'center' };
+
+      worksheet.getCell('A2').value = 'Tipo:';
+      worksheet.getCell('B2').value = sensor.tipo;
+      worksheet.getCell('A3').value = 'Username:';
+      worksheet.getCell('B3').value = sensor.username;
+      worksheet.getCell('A4').value = 'Total Registros:';
+      worksheet.getCell('B4').value = sensorData.length;
+
+      // Fila vacía
+      const headerRow = 6;
+
+      // Obtener nombres de columnas dinámicamente de las entradas del sensor
+      const dataColumns = sensor.entradas.map((e) => e.nombre);
+      const headers = ['#', 'Timestamp', ...dataColumns];
+
+      // Crear encabezados de tabla
+      const headerRowObj = worksheet.getRow(headerRow);
+      headers.forEach((header, index) => {
+        const cell = headerRowObj.getCell(index + 1);
+        cell.value = header;
+        cell.font = { bold: true };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF4472C4' },
+        };
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.alignment = { horizontal: 'center' };
+      });
+
+      // Agregar datos
+      sensorData.forEach((record, index) => {
+        const rowIndex = headerRow + 1 + index;
+        const row = worksheet.getRow(rowIndex);
+
+        row.getCell(1).value = index + 1; // Número
+        row.getCell(2).value = record.timestamp.toISOString(); // Timestamp
+
+        // Agregar valores de datos dinámicamente
+        dataColumns.forEach((colName, colIndex) => {
+          const value = record.data[colName];
+          row.getCell(3 + colIndex).value =
+            value !== null && value !== undefined ? value : 'N/A';
+        });
+      });
+
+      // Ajustar ancho de columnas
+      worksheet.columns.forEach((column, index) => {
+        if (index === 0)
+          column.width = 8; // #
+        else if (index === 1)
+          column.width = 25; // Timestamp
+        else column.width = 15; // Datos
+      });
+
+      // Congelar primera fila de datos
+      worksheet.views = [{ state: 'frozen', xSplit: 0, ySplit: headerRow }];
+    }
+
+    // Generar buffer del archivo
+    return await workbook.xlsx.writeBuffer();
   }
 }
