@@ -24,7 +24,10 @@ interface AuthenticatedSocket extends Socket {
 
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: process.env.CORS_ORIGINS
+      ? process.env.CORS_ORIGINS.split(',')
+      : ['http://localhost:8080'],
+    credentials: true,
   },
   transports: ['websocket', 'polling'],
 })
